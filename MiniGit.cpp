@@ -228,8 +228,125 @@ void MiniGit::checkout(const std::string& branchName) {
 
 }
 void MiniGit::merge(const std::string& branchName) {
+    std::string targetRefPath = repoPath + "/refs/" + branchName;
+
+    std::ifstream refIn(targetRefPath);
+    if (!refIn) {
+        std::cerr << "Branch not found: " << branchName << "\n";
+        return;
+    }
+
+    std::string targetHash;
+    std::getline(refIn, targetHash);
+    std::string targetCommitPath = commitsPath + "/" + targetHash;
+
+    std::ifstream targetIn(targetCommitPath);
+    if (!targetIn) {
+        std::cerr << "Target commit not found.\n";
+        return;
+    }
+
+    std::vector<std::string> targetFiles;
+    std::string line;
+    bool inFiles = false;
+    while (std::getline(targetIn, line)) {
+        if (line == "Files:") {
+            inFiles = true;
+            continue;
+        }
+        if (inFiles) targetFiles.push_back(line);
+    }
+    for (const auto& file : targetFiles) {
+        std::ifstream f(file);
+        if (f) {
+            std::cout << "CONFLICT: both modified " << file << "\n";
+            std::ofstream out(file + ".conflict");
+            out << "<<<<<<< HEAD\n";
+            out << readFile(file) << "\n=======\n";
+            out << readFile(objectsPath + "/" + computeHash(readFile(file))) << "\n>>>>>>>\n";
+            std::cout << "Conflict written to " << file << ".conflict\n";
+        } else {
+            std::string blobPath = objectsPath + "/" + computeHash(readFile(file));
+            std::string content = readFile(blobPath);
+            std::ofstream out(file);
+            out << content;
+            std::cout << "Merged: " << file << "\n";
+        }
+
+        stagedFiles.insert(file);
+    }
+
+    commit("Merged branch: " + branchName);
+
     }
 
 
-void MiniGit::diff(const std::string& hash1, const std::string& hash2) {}
+
+void MiniGit::diff(const std::string& hash1, const std::string& hash2) {
+    std::string path1 = commitsPath + "/" + hash1;
+    std::string path2 = commitsPath + "/" + hash2;
+
+    std::ifstream in1(path1), in2(path2);
+    if (!in1 || !in2) {
+        std::cerr << "One or both commit hashes are invalid.\n";
+        return;
+    }
+
+    auto extractFiles = [](std::ifstream& in) {
+        std::set<std::string> files;
+        std::string line;
+        bool inFiles = false;
+        while (std::getline(in, line)) {
+            if (line == "Files:") {
+                inFiles = true;
+                continue;
+            }
+            if (inFiles && !line.empty()) {
+                files.insert(line);
+            }
+        }
+        return files;
+    };
+
+    std::set<std::string> files1 = extractFiles(in1);
+    std::set<std::string> files2 = extractFiles(in2);
+
+    std::set<std::string> allFiles;
+    allFiles.insert(files1.begin(), files1.end());
+    allFiles.insert(files2.begin(), files2.end());
+
+    for (const auto& file : allFiles) {
+        bool in1 = files1.count(file);
+        bool in2 = files2.count(file);
+
+        std::cout << "\n=== File: " << file << " ===\n";
+
+        if (in1 && !in2) {
+            std::cout << "- File removed in commit2\n";
+            continue;
+        }
+        if (!in1 && in2) {
+            std::cout << "+ File added in commit2\n";
+            continue;
+        }
+
+        std::string content1 = readFile(file);
+        std::string content2 = readFile(file);
+
+        std::istringstream ss1(content1);
+        std::istringstream ss2(content2);
+        std::string line1, line2;
+
+        while (std::getline(ss1, line1) && std::getline(ss2, line2)) {
+            if (line1 != line2) {
+                std::cout << "- " << line1 << "\n";
+                std::cout << "+ " << line2 << "\n";
+            }
+        }
+
+        while (std::getline(ss1, line1))
+            std::cout << "- " << line1 << "\n";
+        while (std::getline(ss2, line2))
+            std::cout << "+ " << line2 << "\n";
+    }
 }
