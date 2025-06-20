@@ -161,9 +161,71 @@ void MiniGit::log() {
     }
 }
 void MiniGit::branch(const std::string& name) {
+     if (headHash.empty()) {
+        std::cout << "No commits to branch from.\n";
+        return;
+    }
+
+    std::string refPath = repoPath + "/refs/" + name;
+
+    std::ofstream out(refPath);
+    if (out) {
+        out << headHash;
+        std::cout << "Created branch '" << name << "' pointing to " << headHash << "\n";
+    } else {
+        std::cerr << "Failed to create branch.\n";
+    }
+
    }
 void MiniGit::checkout(const std::string& branchName) {
-    
+     std::string refPath = repoPath + "/refs/" + branchName;
+
+    std::ifstream refIn(refPath);
+    if (!refIn) {
+        std::cerr << "Branch not found: " << branchName << "\n";
+        return;
+    }
+
+    std::string commitHash;
+    std::getline(refIn, commitHash);
+
+    std::string commitPath = commitsPath + "/" + commitHash;
+    std::ifstream commitIn(commitPath);
+    if (!commitIn) {
+        std::cerr << "Commit not found: " << commitHash << "\n";
+        return;
+    }
+
+    std::vector<std::string> files;
+    std::string line;
+    bool fileSection = false;
+    while (std::getline(commitIn, line)) {
+        if (line == "Files:") {
+            fileSection = true;
+            continue;
+        }
+        if (fileSection && !line.empty()) {
+            files.push_back(line);
+        }
+    }
+
+    for (const auto& file : files) {
+        std::string content = readFile(objectsPath + "/" + computeHash(readFile(file)));
+        std::ofstream out(file);
+        if (out) {
+            out << content;
+            std::cout << "Restored: " << file << "\n";
+        }
+    }
+
+    std::ofstream headOut(repoPath + "/HEAD");
+    if (headOut) {
+        headOut << "ref: refs/" << branchName << "\n";
+    }
+
+    headHash = commitHash;
+    std::cout << "Switched to branch: " << branchName << "\n";
+
 }
 void MiniGit::merge(const std::string& branchName) {
     }
